@@ -35,7 +35,7 @@ library(ggplot2)
 library(reshape2)
 library(plotly)
 library(highcharter)
-
+library(spdep)
 install.packages("spgwr")
 
 install.packages("OpenStreetMap")
@@ -57,7 +57,7 @@ names(lsoa.map@data)[79] <- c("diagnosis")
 
 install.packages("Johnson")
 library(Johnson)
-# normalisation 
+# normalisation testing 
 
 geodemographic3 <- geodemographic
 
@@ -90,15 +90,32 @@ ggplot(gather(stand_data), aes(value)) +
   geom_histogram(bins = 10) + 
   facet_wrap(~key, scales = 'free_x')
 
+
+######################################################################MEH
 # 2.2 Mental Health -------
 
 lsoa_mh <- read.csv("stand_data_mhTotal.csv", header=T, sep=",")
 lsoa_mh<- subset(lsoa_mh, select =-c(lsoa01nm))
 
 
+#boroughs 
+borough <- read.csv("ons-mye-LSOA01.csv", header=T, sep=",")
+borough1 <- borough[grep("^2001",borough[,2]),]
+borough2 <- data.frame(borough1[1:4])
+borough2<- subset(borough2, select=-c(Year, LSOA01NM))
+names(borough2)[1] <- c("lsoa01cd")
+
+borough <- merge(borough2,lsoa_mh2,by.x="lsoa01cd",by.y="lsoa01cd")
+write.csv(borough, file="borough_mh.csv")
+borough<- subset(borough, select=-c(lsoa01nm,ID,mh_tot))
+borough3<- melt(borough,id.vars=1,measure.vars = 2:3) 
+
+ggplot(borough, aes(x=LADNM,y=mh_crude_tot))+geom_bar(fill="tomato2")
+
+lsoa_test5 <- lsoa_test1
 # binding mh + shapefile
-lsoa_test@data <- data.frame(lsoa_test@data,mh_lsoa
-                            [match(lsoa_test@data[,"LSOA_CODE"],lsoa_mh[,"lsoa01cd"]),])
+lsoa_test5@data <- data.frame(lsoa_test5@data,lsoa_mh2
+                            [match(lsoa_test5@data[,"LSOA_CODE"],lsoa_mh2[,"lsoa01cd"]),])
 
 # change name for 
 names(lsoa.map@data)[79] <- c("diagnosis")
@@ -134,9 +151,19 @@ class(lsoa.map)
 
 # save shapefile polygon for further use 
 #new folder
-dir.create("London_Polygon")
-writeOGR(obj=lsoa.map, dsn="London_Polygon", layer="lsoa.map", driver="ESRI Shapefile")
+dir.create("gwr1")
+dir.create("gwr2")
+dir.create("gwr3")
+dir.create("gwr4")
+dir.create("gwr5")
+dir.create("gwr6")
 
+writeOGR(obj=gwr.map1, dsn="gwr1", layer="gwr.map1", driver="ESRI Shapefile")
+writeOGR(obj=gwr.map2, dsn="gwr2", layer="gwr.map2", driver="ESRI Shapefile")
+writeOGR(obj=gwr.map3, dsn="gwr3", layer="gwr.map3", driver="ESRI Shapefile")
+writeOGR(obj=gwr.map4, dsn="gwr4", layer="gwr.map4", driver="ESRI Shapefile")
+writeOGR(obj=gwr.map5, dsn="gwr5", layer="gwr.map5", driver="ESRI Shapefile")
+writeOGR(obj=gwr.map6, dsn="gwr6", layer="gwr.map6", driver="ESRI Shapefile")
 
 log_mg <- log(mh_lsoa$total)
 class(log_mg)
@@ -148,16 +175,26 @@ tmaptools::palette_explorer()
 
 tmap_mode("view")
 
+boroughs_total <- read.csv("boroughs_tot.csv")
+borough_shp <- readOGR("borough/London_Borough_Excluding_MHW.shp")
+
+borough_shp@data <- data.frame(borough_shp@data,boroughs_total
+                              [match(borough_shp@data[,"NAME"],boroughs_total[,"Boroughs"]),])
 
 
-tm_shape(lsoa_test1) + tm_fill("mh_tot_log", palette = "Reds",
+tm_shape(lsoa_test1) + tm_fill("mh_tot", palette = "Reds",
                                style = "pretty", title = "Mental Health") +tm_borders(alpha=.1)+
   tm_layout(frame = F)
 
-tm_shape(lsoa_test1) + tm_fill("mh_tot_log", palette = "RdBu",style = "jenks",n=7) +
-  tm_borders(alpha=0.1)+tm_layout(frame = F, main.title ="Mental Health Distribution", title="Log-Transformed Values",
+tm_shape(lsoa_test5) + tm_fill("mh_crude_tot", palette = "Reds",style = "jenks",n=7) +
+  tm_borders(alpha=0.1)+tm_layout(frame = F, main.title ="Mental Health Disorder Distribution", title="by LSOA population",
                                   title.size=1)+tm_legend(show=T)
 
+tm_shape(borough_shp) + tm_fill("Crude.Number.of.Mental.Health.Admissions", palette = "Reds",style = "jenks",n=5,title="mh_crude") +
+  tm_borders(alpha=0.1)+tm_layout(frame = F, main.title ="Mental Health Disorder Distribution", title="by Borough population",
+                                  title.size=1)+tm_legend(show=T)
+
+names(borough_shp@data)
 ?tm_fill
 
   ?tm_polygons
@@ -400,7 +437,7 @@ legend("bottomright",legend=c("insignificant","low-low","low-high","high-low","h
 ?legend
 ?plot
 
-#------ 3.3 Getis-ord test ----- 
+  #------ 3.3 Getis-ord test ----- 
 
 # creates centroid and joins neighbours within 0 and 800 units
 nb <- dnearneigh(coordinates(lsoa_test1),0,2000)
@@ -436,6 +473,26 @@ geodemographic <- geodemographic[!is.na(geodemographic$pop2011),]
 #remove column
 geodemographic<- subset(geodemographic, select =-c(LSOA11NM,LAD11CD,LAD11NM))
 
+install.packages("vegan")
+
+library(cluster)
+library(vegan)
+
+dis <- vegdist(geodemographic)
+res <- pam(dis,5) #choice of clustering algorithm 
+sil <- silhouette (res$clustering,dis) #  cluster vector
+
+# Summary of silhouette analysis
+si.sum <- summary(sil)
+# Average silhouette width of each cluster
+si.sum$clus.avg.widths
+
+# K-means clustering
+km.res <- eclust(geodemographic3, "kmeans", k = 6,
+                 nstart = 20, graph = F)
+
+fviz_silhouette(km.res)
+
 
 # lists the column names and positions
 names(geodemographic)
@@ -465,25 +522,6 @@ value
 geodemographic <- geodemographic[3:75]
 stand_data <- geodemographic
 
-install.packages("vegan")
-
-library(cluster)
-library(vegan)
-
-dis <- vegdist(geodemographic)
-res <- pam(dis,5) #choice of clustering algorithm 
-sil <- silhouette (res$clustering,dis) #  cluster vector
-
-# Summary of silhouette analysis
-si.sum <- summary(sil)
-# Average silhouette width of each cluster
-si.sum$clus.avg.widths
-
-# K-means clustering
-km.res <- eclust(geodemographic3, "kmeans", k = 6,
-                 nstart = 20, graph = F)
-
-fviz_silhouette(km.res)
 
 # loops columns from position 1 : the last column
 
@@ -804,7 +842,7 @@ tm6 <-tm_shape(cluster_map6) + tm_fill("Classification", palette = "Set2",style 
  
 tm_shape(cluster_map6) + tm_fill("Classification", palette = "Set2",style = "kmeans") + 
   tm_borders(alpha=0.1)+tm_layout(frame = F, main.title ="Cluster 6", 
-                                  title="High Density Deprived Mixed Ethnicity",title.size=1)+tm_legend(show=FALSE)
+                                  title="Multi-Ethnic Urban Communities",title.size=1)+tm_legend(show=FALSE)
 
 
 #------- 3.4.7 Cluster Maps ======
@@ -816,7 +854,7 @@ tmap_arrange(tm0, tm1, tm2)
 
 hist(stand_data$ed2)
 
-# ----- 4.0.1 Linear Model + Residuals   ------ 
+# ----- 4.0.1 MLR General 0   ------ 
 
 # runs a linear model 
 
@@ -913,15 +951,44 @@ model_geod0 <- lm(lsoa_test1$mh_tot_log~
                  )
                 
 
-plot(model_geod0,v)
+plot(model_geod0)
 
 summary(model_geod0)
+
+write.csv(model_geod0$coefficients, file="mlr_coef.csv")
+write.csv(gwr.model0$lm$coefficients,file="gwr_coef.csv")
+
 # use the par function if we want to plot them in a 2x2 frame
 par(mfrow=c(2,2))
 dev.off()
 par(mfrow)
 plot(model_geod)
 
+
+install.packages("ggstance")
+install.packages("lme4")
+install.packages("jtools")
+install.packages("summ")
+library(lme4)
+library(svyglm)
+library(jtools)
+library(ggstance)
+
+model_geod9 <- model_geod0 
+
+model_geod9 <- subset(model_geod9,select=-c(model))
+
+model_geod99 <- gwr.model0$lm
+
+plot_summs(model_geod0, model_geod99,scale=TRUE)
+plot_summs(model_geod0)
+summ(model_geod0)
+export_summs(model_geod0, scale = TRUE,
+             error_format = "[{conf.low}, {conf.high}]")
+
+plot_summs(model_geod1,model_geod2,model_geod3,model_geod4,model_geod5,model_geod6,scale=T)
+?plot_coefs
+  ?plot_summs
 
 
 hist(lsoa_mh$mh_tot)
@@ -941,7 +1008,7 @@ map.resids_geod0 <- cbind(lsoa_test1, resids_geod0)
 # rename the column header from the resids file - in this case its the 21th column of map.resids
 
 names(map.resids_geod0)
-names(map.resids_geod0)[85] <- "resids"
+names(map.resids_geod0)[86] <- "resids"
 
 # maps the residuals using the quickmap function from tmap
 qtm(map.resids_geod0, fill = "resids")
@@ -955,7 +1022,7 @@ tm_shape(map.resids_geod0) + tm_fill("resids", palette = "Reds",
   tm_layout(frame = T)
 
 
- #----- 4.0.2 Geographcail Weighted Regression -----
+  #----- 4.0.2 GWR 0  -----
 
 GWRbandwidth_geod0 <- gwr.sel(lsoa_test1$mh_tot_log~
                                lsoa_test1$age0_15
@@ -1110,8 +1177,31 @@ gwr.model0 = gwr(lsoa_test1$mh_tot~
 gwr.model0
 
 
+stand_data1 <- scale(geodemographic$pop, center = TRUE, scale = TRUE)
+#standradizet all columns
+value2 <- colnames(coeff_anal)
+value2
+# creates a new data frame
+coeff_anal2 <- coeff_anal
+stand_data <- geodemographic
+
+
+# loops columns from position 1 : the last column
+
+for(i in 1: ncol (coeff_anal)){
+  coeff_anal2[, value2[i]] <- scale(as.numeric(coeff_anal[, value2[i]]))
+}
+
+coeff_anal <- read.csv("mlr_gwr_coeff.csv",header = T,sep=",")
+
+coeff_anal2 <- scale(coeff_anal$glob_mlr_coeff, scale=T, center=T)
+coeff_anal2 <- scale(coeff_anal1$glob_gwr_coeff, scale=T, center=T)
+
 results_geod0 <-as.data.frame(gwr.model0$SDF)
 
+write.csv(results_geod0, file="results_gwr.csv")
+write.csv(coeff_anal2,file="coeff_stand.csv")
+          
 names(results_geod)
 head(results_geod)
 
@@ -1121,12 +1211,513 @@ qtm(gwr.map0, fill = "localR2")
 
 
 tm_shape(gwr.map0) + tm_fill("localR2", palette = "Reds",
-                             style = "quantile", title = "localR2") +tm_borders(alpha=.1)+
-  tm_layout(frame = T)
+                             style = "jenks", title = "localR2") +tm_borders(alpha=.1)+
+  tm_layout(frame = F,main.title ="Geographically Weighted Regression", title=,title.size=1.3,main.title.size = 1.7)
+
+#-----4.0.3 GWR  0  - PCA ----
+install.packages("GWmodel")
+library(GWmodel)
+
+bw.gwr0<- bw.gwr(lsoa_test1$mh_tot_log~
+                   lsoa_test1$age0_15
+                 +lsoa_test1$age16_29
+                 +lsoa_test1$age30_44
+                 +lsoa_test1$age45_64
+                 +lsoa_test1$age65_
+                 +lsoa_test1$pop_per_h
+                 +lsoa_test1$dm1
+                 +lsoa_test1$dm2
+                 +lsoa_test1$dm3
+                 +lsoa_test1$dm4
+                 +lsoa_test1$dm5
+                 +lsoa_test1$eth1
+                 +lsoa_test1$eth2
+                 +lsoa_test1$eth3
+                 +lsoa_test1$eth4
+                 +lsoa_test1$eth5
+                 +lsoa_test1$birth1
+                 +lsoa_test1$birth2
+                 +lsoa_test1$rel1
+                 +lsoa_test1$rel2
+                 +lsoa_test1$rel3
+                 +lsoa_test1$rel4
+                 +lsoa_test1$rel5
+                 +lsoa_test1$rel6
+                 +lsoa_test1$rel7
+                 +lsoa_test1$rel8
+                 +lsoa_test1$rel9
+                 +lsoa_test1$ten1
+                 +lsoa_test1$ten2
+                 +lsoa_test1$ten3
+                 +lsoa_test1$ten4
+                 +lsoa_test1$house_price
+                 +lsoa_test1$crim_tot
+                 +lsoa_test1$crim1
+                 +lsoa_test1$crim2
+                 +lsoa_test1$crim3
+                 +lsoa_test1$crim4
+                 +lsoa_test1$crim5
+                 +lsoa_test1$crim6
+                 +lsoa_test1$em_n_w_child
+                 +lsoa_test1$em_n_l
+                 +lsoa_test1$em1
+                 +lsoa_test1$em2
+                 +lsoa_test1$em3
+                 +lsoa_test1$in1
+                 +lsoa_test1$in2
+                 +lsoa_test1$in3
+                 +lsoa_test1$bad_health
+                 +lsoa_test1$green_space
+                 +lsoa_test1$poll_PM10
+                 +lsoa_test1$poll_Nox
+                 +lsoa_test1$poll_NO2
+                 +lsoa_test1$poll_index
+                 +lsoa_test1$acc1
+                 +lsoa_test1$acc2
+                 +lsoa_test1$acc3
+                 +lsoa_test1$acc4
+                 +lsoa_test1$acc5
+                 +lsoa_test1$acc6
+                 +lsoa_test1$acc7
+                 +lsoa_test1$acc8
+                 +lsoa_test1$in4
+                 +lsoa_test1$in5
+                 +lsoa_test1$ed_ab
+                 +lsoa_test1$ed0
+                 +lsoa_test1$ed1
+                 +lsoa_test1$ed2
+                 +lsoa_test1$ed2a
+                 +lsoa_test1$ed3
+                 +lsoa_test1$ed4
+                 +lsoa_test1$ed5,
+                 data=lsoa_test1,approach = "AICc", kernel = "bisquare", adaptive = TRUE)
 
 
 
-# 4.1.1 GWE + Reg Cluster 1 -----
+sigTest <- abs(gwr.model0$SDF$lsoa_test1.age0_15) -2 * gwr.model0$SDF$lsoa_test1.age0_15_se
+sigTest2 <- abs(gwr.model0$SDF$lsoa_test1.dm1) -2 * gwr.model0$SDF$lsoa_test1.dm1_se
+sigtest3 = 
+
+
+gwr.map0
+
+#-----4.0.4 GWR  0 Coefficients Predictors ----
+names(gwr.map0)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.age0_15", n = 5, style = "jenks")  + 
+tm_layout(frame = F, main.title ="GWR coef:age0-15",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.age16_29", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age16_29",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.age30_44", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age30_44",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.age45_64", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age45_64",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.age65_", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:65_",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.pop_per_h", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:pop_per_h",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.dm1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.dm2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.dm3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.dm4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.dm5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.eth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.eth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.eth3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.eth4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.eth5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.birth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.birth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.rel9", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel9",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ten1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ten2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ten3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ten4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.house_price", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:house_price",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.crim_tot", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim_tot",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.crim1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.crim2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.crim3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.crim4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.crim5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.crim6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.em_n_w_child", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_w_child",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.em_n_l", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_l",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.em1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.em2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.em3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.in1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.in2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.in3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.bad_health", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:bad_health",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.green_space", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:green_space",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.poll_PM10", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_PM10",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.poll_Nox", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_Nox",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.poll_NO2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_NO2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.poll_index", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_index",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.acc8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.in4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.in5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ed_ab", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed_ab",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ed1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ed2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ed2a", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2a",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ed3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ed4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map0) + 
+  tm_fill("lsoa_test1.ed5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+#------ CLUSTER MLR AND GWR MODELS ---- 
+
+summary(model_geod6)
+gwr.model6
+
+# 4.1.1 MLR + Reg Cluster 1 -----
 
 
 gwr_cluster1 <- lsoa_test1
@@ -1214,7 +1805,7 @@ model_geod1 <- lm(gwr_cluster1$mh_tot_log~
 
 
 plot(model_geod)
-
+summary(model_geod6)
 
 # use the par function if we want to plot them in a 2x2 frame
 par(mfrow=c(2,2))
@@ -1239,12 +1830,12 @@ gwr1 <- tm_shape(map.resids_geod1) + tm_fill("resids", palette = "Reds",
                                            style = "quantile", title = "Residuals") +tm_borders(alpha=.1)+
   tm_layout(frame = T)
 
-tm_shape(map.resids_geod1) + tm_fill("resids", palette = "Reds",
-                                    style = "pretty", title = "Residuals") +tm_borders(alpha=.1)+
+tm_shape(map.resids_geod1) + tm_fill("resids", palette = "RdBu",
+                                    style = "jenks", title = "Residuals") +tm_borders(alpha=.1)+
   tm_layout(frame = T)
 
 
-#----- 4.1.2 Geographcail Weighted Regression -----
+#----- 4.1.2 GWR 1 -----
 
 GWRbandwidth_geod1 <- gwr.sel(gwr_cluster1$mh_tot_log~
                                 gwr_cluster1$age0_15
@@ -1408,12 +1999,13 @@ gwr.map1 <- cbind(gwr_cluster1, as.matrix(results_geod1))
 
 qtm(gwr.map1, fill = "localR2")
 
-tm_shape(gwr.map1) + tm_fill("localR2", palette = "Reds",
+tm_shape(gwr.map1) + tm_fill("localR2", palette = "Greens",
                                      style = "quantile", title = "localR2") +tm_borders(alpha=.1)+
-  tm_layout(frame = T)
+  tm_layout(frame = F,main.title ="Cluster 1", title="GWR" ,title.size=1.3,main.title.size = 1.7)
 
 
-# 4.2.1 GWE + Reg Cluster 2 -----
+
+# 4.2.1 MLR + Reg Cluster 2 -----
 
 
 gwr_cluster2 <- lsoa_test1
@@ -1522,16 +2114,16 @@ names(map.resids_geod2)[88] <- "resids"
 # maps the residuals using the quickmap function from tmap
 qtm(map.resids_geod2, fill = "resids")
 
-gwr2 <- tm_shape(map.resids_geod2) + tm_fill("resids", palette = "Reds",
+gwr2 <- tm_shape(map.resids_geod2) + tm_fill("resids", palette = "Greens",
                                              style = "quantile", title = "Residuals") +tm_borders(alpha=.1)+
   tm_layout(frame = T)
 
 tm_shape(map.resids_geod2) + tm_fill("resids", palette = "Reds",
                                      style = "pretty", title = "Residuals") +tm_borders(alpha=.1)+
   tm_layout(frame = T)
+tmaptools::palette_explorer()
 
-
-#----- 4.2.2 Geographcail Weighted Regression -----
+#----- 4.2.2 GWR - 2-----
 
 GWRbandwidth_geod2 <- gwr.sel(gwr_cluster2$mh_tot_log~
                                 gwr_cluster2$age0_15
@@ -1700,7 +2292,18 @@ tm_shape(gwr.map2) + tm_fill("localR2", palette = "Reds",
   tm_layout(frame = T)
 
 
-# 4.3.1 GWE + Reg Cluster 3 -----
+
+tmaptools::palette_explorer()
+
+
+tm_shape(gwr.map6) + tm_fill("localR2", palette = "YlOrRd",
+                             style = "quantile", title = "localR2") +tm_borders(alpha=.1)+
+  tm_layout(frame = F,main.title ="Cluster 6", title="GWR" ,title.size=1.3,main.title.size = 1.7)
+
+
+
+
+# 4.3.1 MLR + Reg Cluster 3 -----
 
 
 gwr_cluster3 <- lsoa_test1
@@ -1818,7 +2421,7 @@ tm_shape(map.resids_geod3) + tm_fill("resids", palette = "Reds",
   tm_layout(frame = T)
 
 
-#----- 4.3.2 Geographcail Weighted Regression -----
+#----- 4.3.2 GWR 3 -----
 
 GWRbandwidth_geod3 <- gwr.sel(gwr_cluster3$mh_tot_log~
                                 gwr_cluster3$age0_15
@@ -1988,7 +2591,7 @@ tm_shape(gwr.map3) + tm_fill("localR2", palette = "Reds",
 
 
 
-# 4.4.1 GWE + Reg Cluster 4 -----
+# 4.4.1 MLR + Reg Cluster 4 -----
 
 
 gwr_cluster4 <- lsoa_test1
@@ -2106,7 +2709,7 @@ tm_shape(map.resids_geod4) + tm_fill("resids", palette = "Reds",
   tm_layout(frame = T)
 
 
-#----- 4.4.2 Geographcail Weighted Regression -----
+#----- 4.4.2 GWR 4-----
 
 GWRbandwidth_geod4 <- gwr.sel(gwr_cluster4$mh_tot_log~
                                 gwr_cluster4$age0_15
@@ -2274,7 +2877,7 @@ tm_shape(gwr.map4) + tm_fill("localR2", palette = "Reds",
                              style = "quantile", title = "localR2") +tm_borders(alpha=.1)+
   tm_layout(frame = T)
 
-# 4.5.1 GWE + Reg Cluster 5 -----
+# 4.5.1 MLR + Reg Cluster 5 -----
 
 gwr_cluster5 <- lsoa_test1
 
@@ -2391,7 +2994,7 @@ tm_shape(map.resids_geod5) + tm_fill("resids", palette = "Reds",
   tm_layout(frame = T)
 
 
-#----- 4.5.2 Geographcail Weighted Regression -----
+#----- 4.5.2 GWR 5 -----
 
 GWRbandwidth_geod5 <- gwr.sel(gwr_cluster5$mh_tot_log~
                                 gwr_cluster5$age0_15
@@ -2560,7 +3163,7 @@ tm_shape(gwr.map5) + tm_fill("localR2", palette = "Reds",
   tm_layout(frame = T)
 
 
-# 4.6.1 GWE + Reg Cluster 6 -----
+# 4.6.1 MLR + Reg Cluster 6 -----
 
 
 gwr_cluster6 <- lsoa_test1
@@ -2678,7 +3281,7 @@ tm_shape(map.resids_geod6) + tm_fill("resids", palette = "Reds",
   tm_layout(frame = T)
 
 
-#----- 4.6.2 Geographcail Weighted Regression -----
+#----- 4.6.2 GWR 6 -----
 
 GWRbandwidth_geod6 <- gwr.sel(gwr_cluster6$mh_tot_log~
                                 gwr_cluster6$age0_15
@@ -2858,6 +3461,11 @@ correlation<- subset(correlation, select =-c(MSOA_NAME,Classification))
                      
 cormat <- round(cor(correlation),2)
 
+write.csv(geodemographic2, file="census_log2.csv")
+cormat2 <-as.data.frame(cormat)
+
+write.csv(cormat2, file="cormat.csv")
+
 library(reshape2)
 library(ggplot2)
 melted_cormat <- melt(cormat)
@@ -2870,6 +3478,3023 @@ ggplot(data=melted_cormat, aes(x=Var1,y=Var2,fill=value))+geom_tile(color = "whi
   theme(axis.text.x = element_text(angle = 45, vjust = 1, 
                                    size = 5, hjust = 1),axis.text.y =element_text(size=5,vjust=1,hjust=1) )+
   coord_fixed()+ggtitle("Pearson's Correlation Matrix")
+
+install.packages("PerformanceAnalytics")
+library("PerformanceAnalytics")
+
+dev.off()
+
+corr_data <- lsoa_test1
+
+corr_data <- subset(corr_data@data, select =-c(LSOA_CODE,LSOA_NAME,MSOA_NAME,STWARDCODE,STWARDNAME,LA_CODE,LA_NAME,pop,lsoa01cd,mh_tot))
+corr_data <- subset(corr_data, select =-c(MSOA_CODE,X,tot_house))
+
+
+
+
+# neigborhood check 
+gwr.test.nb1 <- poly2nb(gwr.map1)
+gwr.test.nb1
+
+
+
+# list of moran 
+gwr.test.lw1 <- nb2listw(gwr.test.nb1, zero.policy=TRUE)
+
+
+# moran test 
+
+moran.test(gwr.map1@data$mh_tot_log, gwr.test.lw1, zero.policy = TRUE)
+
+geary.test(gwr.map1@data$mh_tot_log, gwr.test.lw1, zero.policy = TRUE)
+
+# creates a moran plot
+
+# local moran 
+local.test1 <- localmoran(x = gwr.map1@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb1, style = "W", zero.policy = TRUE))
+
+
+
+
+gwr.moran.map1 <- cbind(gwr.map1, local.test1)
+
+moran.test1 <- moran.plot(gwr.map1@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb1, style = "W", zero.policy = TRUE),
+                          labels=F,xlab="mh_tot_log",ylab="spatially lagged mh_tot_log",main="Moran's I plot")
+
+
+# Moran 
+
+
+#Geary 
+
+
+#Map 
+
+# ploot map 
+tm_shape(gwr.moran.map1) + tm_fill(col = "Ii", palette = "RdBu", style = "jenks", title = "Local Moran's Statistic")+
+  tm_layout(frame = F, main.title ="Local Moran's I Test")
+
+
+# ---- Cluster 1------
+
+
+
+# neigborhood check 
+gwr.test.nb1 <- poly2nb(gwr.map1)
+gwr.test.nb1
+
+
+
+# list of moran 
+gwr.test.lw1 <- nb2listw(gwr.test.nb1, zero.policy=TRUE)
+
+
+# moran tetst 
+
+moran.test(gwr.map1@data$mh_tot_log, gwr.test.lw1, zero.policy = TRUE)
+
+geary.test(gwr.map1@data$mh_tot_log, gwr.test.lw1, zero.policy = TRUE)
+
+# creates a moran plot
+#----- 1.3 Getis Ord --------
+
+
+# creates centroid and joins neighbours within 0 and 800 units
+nb1 <- dnearneigh(coordinates(gwr.map1),0,1000)
+# creates listw
+nb_lw1 <- nb2listw(nb1, style = 'B',zero.policy = TRUE)
+
+
+
+# compute Getis-Ord Gi statistic
+local_g1 <- localG(gwr.map1@data$mh_tot_log, nb_lw1)
+local_g1 <- cbind(gwr.map1, as.matrix(local_g1))
+names(local_g1)
+names(local_g1)[310] <- "gstat"
+
+# map the results
+
+tm_shape(local_g1) + tm_fill("gstat", palette = "RdBu", style = "jenks",title="z-scores") + tm_borders(alpha=.2)+
+  tm_layout(frame = F, main.title ="Getis Ord Test",title.size=1.3,main.title.size = 1.7,title="Cluster 1")+
+  tm_legend(show=T)
+
+
+
+#-----1.4 GWR  0 Coefficients Predictors ----
+names(gwr.map1)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.age0_15", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age0-15",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.age16_29", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age16_29",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.age30_44", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age30_44",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.age45_64", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age45_64",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.age65_", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:65_",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.pop_per_h", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:pop_per_h",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.dm1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.dm2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+#### ---- CONTINUE HERE ------ THIRZA IS THE BEST YAY !!! 
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.dm3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.dm4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.dm5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.eth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.eth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.eth3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.eth4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.eth5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.birth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.birth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.rel9", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel9",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ten1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ten2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ten3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ten4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.house_price", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:house_price",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.crim_tot", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim_tot",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.crim1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.crim2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.crim3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.crim4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.crim5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.crim6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.em_n_w_child", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_w_child",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.em_n_l", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_l",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.em1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.em2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.em3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.in1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.in2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.in3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.bad_health", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:bad_health",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.green_space", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:green_space",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.poll_PM10", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_PM10",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.poll_Nox", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_Nox",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.poll_NO2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_NO2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.poll_index", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_index",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.acc8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.in4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.in5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ed_ab", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed_ab",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ed1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ed2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ed2a", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2a",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ed3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ed4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map1) + 
+  tm_fill("lsoa_test1.ed5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+# ---- Cluster 2 ------ 
+
+
+
+
+
+# neigborhood check 
+gwr.test.nb2 <- poly2nb(gwr.map2)
+gwr.test.nb2
+
+
+
+# list of moran 
+gwr.test.lw2 <- nb2listw(gwr.test.nb2, zero.policy=TRUE)
+
+
+# moran tetst 
+
+moran.test(gwr.map2@data$mh_tot_log, gwr.test.lw2, zero.policy = TRUE)
+
+geary.test(gwr.map2@data$mh_tot_log, gwr.test.lw2, zero.policy = TRUE)
+
+# creates a moran plot
+
+# local moran 
+local.test2 <- localmoran(x = gwr.map2@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb2, style = "W", zero.policy = TRUE))
+
+
+
+
+gwr.moran.map2 <- cbind(gwr.map2, local.test2)
+
+moran.test2 <- moran.plot(gwr.map2@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb2, style = "W", zero.policy = TRUE),
+                          labels=F,xlab="mh_tot_log",ylab="spatially lagged mh_tot_log",main="Moran's I plot")
+
+
+# Moran 
+
+
+#Geary 
+
+
+#Map 
+
+# ploot map 
+tm_shape(gwr.moran.map2) + tm_fill(col = "Ii", palette = "RdBu", style = "jenks", title = "Local Moran's Statistic")+
+  tm_layout(frame = F, main.title ="Local Moran's I Test")
+
+
+
+
+#----- 1.3 Getis Ord --------
+
+
+# creates centroid and joins neighbours within 0 and 800 units
+nb2 <- dnearneigh(coordinates(gwr.map2),0,1000)
+# creates listw
+nb_lw2 <- nb2listw(nb2, style = 'B',zero.policy = TRUE)
+
+
+
+# compute Getis-Ord Gi statistic
+local_g2 <- localG(gwr.map2@data$mh_tot_log, nb_lw2)
+local_g2 <- cbind(gwr.map2, as.matrix(local_g2))
+names(local_g2)
+names(local_g2)[310] <- "gstat"
+
+# map the results
+
+tm_shape(local_g2) + tm_fill("gstat", palette = "RdBu", style = "jenks",title="z-scores") + tm_borders(alpha=.2)+
+  tm_layout(frame = F, main.title ="Getis Ord Test",title.size=1.3,main.title.size = 1.7,title="Cluster2")+
+  tm_legend(show=T)
+
+
+
+#-----1.4 GWR  0 Coefficients Predictors ----
+names(gwr.map2)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.age0_15", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age0-15",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.age16_29", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age16_29",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.age30_44", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age30_44",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.age45_64", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age45_64",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.age65_", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:65_",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.pop_per_h", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:pop_per_h",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.dm1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.dm2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+#### ---- CONTINUE HERE ------ THIRZA IS THE BEST YAY !!! 
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.dm3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.dm4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.dm5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.eth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.eth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.eth3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.eth4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.eth5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.birth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.birth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.rel9", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel9",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ten1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ten2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ten3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ten4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.house_price", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:house_price",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.crim_tot", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim_tot",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.crim1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.crim2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.crim3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.crim4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.crim5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.crim6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.em_n_w_child", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_w_child",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.em_n_l", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_l",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.em1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.em2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.em3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.in1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.in2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.in3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.bad_health", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:bad_health",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.green_space", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:green_space",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.poll_PM10", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_PM10",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.poll_Nox", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_Nox",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.poll_NO2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_NO2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.poll_index", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_index",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.acc8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.in4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.in5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ed_ab", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed_ab",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ed1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ed2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ed2a", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2a",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ed3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ed4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map2) + 
+  tm_fill("lsoa_test1.ed5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ---- Cluster 3 ------ 
+
+
+
+
+
+
+
+# neigborhood check 
+gwr.test.nb3 <- poly2nb(gwr.map3)
+gwr.test.nb3
+
+
+
+# list of moran 
+gwr.test.lw3 <- nb2listw(gwr.test.nb3, zero.policy=TRUE)
+
+
+# moran tetst 
+
+moran.test(gwr.map3@data$mh_tot_log, gwr.test.lw3, zero.policy = TRUE)
+
+geary.test(gwr.map3@data$mh_tot_log, gwr.test.lw3, zero.policy = TRUE)
+
+# creates a moran plot
+
+# local moran 
+local.test3 <- localmoran(x = gwr.map3@data$mh_tot_log, 
+                          listw = nb3listw(gwr.test.nb3, style = "W", zero.policy = TRUE))
+
+
+
+
+gwr.moran.map3 <- cbind(gwr.map3, local.test3)
+
+moran.test3 <- moran.plot(gwr.map3@data$mh_tot_log, 
+                          listw = nb3listw(gwr.test.nb3, style = "W", zero.policy = TRUE),
+                          labels=F,xlab="mh_tot_log",ylab="spatially lagged mh_tot_log",main="Moran's I plot")
+
+
+# Moran 
+
+
+#Geary 
+
+
+#Map 
+
+# ploot map 
+tm_shape(gwr.moran.map3) + tm_fill(col = "Ii", palette = "RdBu", style = "jenks", title = "Local Moran's Statistic")+
+  tm_layout(frame = F, main.title ="Local Moran's I Test")
+
+
+
+
+#----- 1.3 Getis Ord --------
+
+
+# creates centroid and joins neighbours within 0 and 800 units
+nb3 <- dnearneigh(coordinates(gwr.map3),0,1000)
+# creates listw
+nb_lw3 <- nb2listw(nb3, style = 'B',zero.policy = TRUE)
+
+
+
+# compute Getis-Ord Gi statistic
+local_g3 <- localG(gwr.map3@data$mh_tot_log, nb_lw3)
+local_g3 <- cbind(gwr.map3, as.matrix(local_g3))
+names(local_g3)
+names(local_g3)[310] <- "gstat"
+
+# map the results
+
+tm_shape(local_g3) + tm_fill("gstat", palette = "RdBu", style = "jenks",title="z-scores") + tm_borders(alpha=.2)+
+  tm_layout(frame = F, main.title ="Getis Ord Test",title.size=1.3,main.title.size = 1.7,title="Cluster 3")+
+  tm_legend(show=T)
+
+
+
+#-----1.4 GWR  0 Coefficients Predictors ----
+names(gwr.map3)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.age0_15", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age0-15",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.age16_29", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age16_29",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.age30_44", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age30_44",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.age45_64", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age45_64",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.age65_", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:65_",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.pop_per_h", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:pop_per_h",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.dm1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.dm2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+#### ---- CONTINUE HERE ------ THIRZA IS THE BEST YAY !!! 
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.dm3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.dm4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.dm5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.eth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.eth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.eth3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.eth4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.eth5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.birth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.birth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.rel9", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel9",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ten1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ten2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ten3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ten4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.house_price", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:house_price",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.crim_tot", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim_tot",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.crim1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.crim2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.crim3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.crim4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.crim5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.crim6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.em_n_w_child", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_w_child",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.em_n_l", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_l",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.em1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.em2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.em3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.in1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.in2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.in3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.bad_health", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:bad_health",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.green_space", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:green_space",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.poll_PM10", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_PM10",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.poll_Nox", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_Nox",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.poll_NO2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_NO2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.poll_index", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_index",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.acc8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.in4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.in5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ed_ab", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed_ab",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ed1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ed2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ed2a", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2a",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ed3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ed4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map3) + 
+  tm_fill("lsoa_test1.ed5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+
+# ---- Cluster 4 ------ 
+
+
+
+
+
+# neigborhood check 
+gwr.test.nb4 <- poly2nb(gwr.map4)
+gwr.test.nb4
+
+
+
+# list of moran 
+gwr.test.lw4 <- nb2listw(gwr.test.nb4, zero.policy=TRUE)
+
+
+# moran tetst 
+
+moran.test(gwr.map4@data$mh_tot_log, gwr.test.lw4, zero.policy = TRUE)
+
+geary.test(gwr.map4@data$mh_tot_log, gwr.test.lw4, zero.policy = TRUE)
+
+# creates a moran plot
+
+# local moran 
+local.test4 <- localmoran(x = gwr.map4@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb4, style = "W", zero.policy = TRUE))
+
+
+
+
+gwr.moran.map4 <- cbind(gwr.map4, local.test4)
+
+moran.test4 <- moran.plot(gwr.map4@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb4, style = "W", zero.policy = TRUE),
+                          labels=F,xlab="mh_tot_log",ylab="spatially lagged mh_tot_log",main="Moran's I plot")
+
+
+# Moran 
+
+
+#Geary 
+
+
+#Map 
+
+# ploot map 
+tm_shape(gwr.moran.map4) + tm_fill(col = "Ii", palette = "RdBu", style = "jenks", title = "Local Moran's Statistic")+
+  tm_layout(frame = F, main.title ="Local Moran's I Test")
+
+
+
+
+#----- 1.3 Getis Ord --------
+
+
+# creates centroid and joins neighbours within 0 and 800 units
+nb4 <- dnearneigh(coordinates(gwr.map4),0,1000)
+# creates listw
+nb_lw4 <- nb2listw(nb4, style = 'B',zero.policy = TRUE)
+
+
+
+# compute Getis-Ord Gi statistic
+local_g4 <- localG(gwr.map4@data$mh_tot_log, nb_lw4)
+local_g4 <- cbind(gwr.map4, as.matrix(local_g4))
+names(local_g4)
+names(local_g4)[310] <- "gstat"
+
+# map the results
+
+tm_shape(local_g4) + tm_fill("gstat", palette = "RdBu", style = "jenks",title="z-scores") + tm_borders(alpha=.2)+
+  tm_layout(frame = F, main.title ="Getis Ord Test",title.size=1.3,main.title.size = 1.7,title="Cluster 4")+
+  tm_legend(show=T)
+
+
+
+#-----1.4 GWR  0 Coefficients Predictors ----
+names(gwr.map4)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.age0_15", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age0-15",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.age16_29", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age16_29",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.age30_44", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age30_44",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.age45_64", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age45_64",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.age65_", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:65_",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.pop_per_h", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:pop_per_h",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.dm1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.dm2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+#### ---- CONTINUE HERE ------ THIRZA IS THE BEST YAY !!! 
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.dm3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.dm4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.dm5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.eth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.eth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.eth3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.eth4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.eth5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.birth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.birth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.rel9", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel9",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ten1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ten2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ten3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ten4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.house_price", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:house_price",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.crim_tot", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim_tot",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.crim1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.crim2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.crim3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.crim4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.crim5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.crim6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.em_n_w_child", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_w_child",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.em_n_l", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_l",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.em1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.em2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.em3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.in1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.in2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.in3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.bad_health", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:bad_health",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.green_space", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:green_space",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.poll_PM10", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_PM10",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.poll_Nox", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_Nox",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.poll_NO2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_NO2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.poll_index", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_index",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.acc8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.in4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.in5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ed_ab", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed_ab",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ed1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ed2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ed2a", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2a",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ed3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ed4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map4) + 
+  tm_fill("lsoa_test1.ed5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+
+# ---- Cluster 5 ------ 
+
+
+
+
+
+
+# neigborhood check 
+gwr.test.nb5 <- poly2nb(gwr.map5)
+gwr.test.nb5
+
+
+
+# list of moran 
+gwr.test.lw5 <- nb2listw(gwr.test.nb5, zero.policy=TRUE)
+
+
+# moran tetst 
+
+moran.test(gwr.map5@data$mh_tot_log, gwr.test.lw5, zero.policy = TRUE)
+
+geary.test(gwr.map5@data$mh_tot_log, gwr.test.lw5, zero.policy = TRUE)
+
+# creates a moran plot
+
+# local moran 
+local.test5 <- localmoran(x = gwr.map5@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb5, style = "W", zero.policy = TRUE))
+
+
+
+
+gwr.moran.map5 <- cbind(gwr.map5, local.test5)
+
+moran.test5 <- moran.plot(gwr.map5@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb5, style = "W", zero.policy = TRUE),
+                          labels=F,xlab="mh_tot_log",ylab="spatially lagged mh_tot_log",main="Moran's I plot")
+
+
+# Moran 
+
+
+#Geary 
+
+
+#Map 
+
+# ploot map 
+tm_shape(gwr.moran.map5) + tm_fill(col = "Ii", palette = "RdBu", style = "jenks", title = "Local Moran's Statistic")+
+  tm_layout(frame = F, main.title ="Local Moran's I Test")
+
+
+
+
+#----- 1.3 Getis Ord --------
+
+
+# creates centroid and joins neighbours within 0 and 800 units
+nb5 <- dnearneigh(coordinates(gwr.map5),0,1000)
+# creates listw
+nb_lw5 <- nb2listw(nb5, style = 'B',zero.policy = TRUE)
+
+
+
+# compute Getis-Ord Gi statistic
+local_g5 <- localG(gwr.map5@data$mh_tot_log, nb_lw5)
+local_g5 <- cbind(gwr.map5, as.matrix(local_g5))
+names(local_g5)
+names(local_g5)[310] <- "gstat"
+
+# map the results
+
+tm_shape(local_g5) + tm_fill("gstat", palette = "RdBu", style = "jenks",title="z-scores") + tm_borders(alpha=.2)+
+  tm_layout(frame = F, main.title ="Getis Ord Test",title.size=1.3,main.title.size = 1.7,title="Cluster 5")+
+  tm_legend(show=T)
+
+
+
+#-----1.4 GWR  0 Coefficients Predictors ----
+names(gwr.map5)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.age0_15", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age0-15",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.age16_29", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age16_29",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.age30_44", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age30_44",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.age45_64", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age45_64",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.age65_", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:65_",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.pop_per_h", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:pop_per_h",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.dm1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.dm2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+#### ---- CONTINUE HERE ------ THIRZA IS THE BEST YAY !!! 
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.dm3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.dm4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.dm5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.eth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.eth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.eth3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.eth4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.eth5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.birth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.birth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.rel9", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel9",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ten1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ten2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ten3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ten4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.house_price", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:house_price",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.crim_tot", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim_tot",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.crim1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.crim2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.crim3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.crim4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.crim5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.crim6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.em_n_w_child", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_w_child",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.em_n_l", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_l",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.em1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.em2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.em3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.in1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.in2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.in3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.bad_health", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:bad_health",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.green_space", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:green_space",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.poll_PM10", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_PM10",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.poll_Nox", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_Nox",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.poll_NO2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_NO2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.poll_index", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_index",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.acc8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.in4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.in5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ed_ab", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed_ab",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ed1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ed2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ed2a", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2a",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ed3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ed4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map5) + 
+  tm_fill("lsoa_test1.ed5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+# ---- Cluster 6 ------ 
+
+
+
+
+# neigborhood check 
+gwr.test.nb6 <- poly2nb(gwr.map6)
+gwr.test.nb6
+
+
+
+# list of moran 
+gwr.test.lw6 <- nb2listw(gwr.test.nb6, zero.policy=TRUE)
+
+
+# moran tetst 
+
+moran.test(gwr.map6@data$mh_tot_log, gwr.test.lw6, zero.policy = TRUE)
+
+geary.test(gwr.map6@data$mh_tot_log, gwr.test.lw6, zero.policy = TRUE)
+
+# creates a moran plot
+
+# local moran 
+local.test6 <- localmoran(x = gwr.map6@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb6, style = "W", zero.policy = TRUE))
+
+
+
+
+gwr.moran.map6 <- cbind(gwr.map6, local.test6)
+
+moran.test6 <- moran.plot(gwr.map6@data$mh_tot_log, 
+                          listw = nb2listw(gwr.test.nb6, style = "W", zero.policy = TRUE),
+                          labels=F,xlab="mh_tot_log",ylab="spatially lagged mh_tot_log",main="Moran's I plot")
+
+
+# Moran 
+
+
+#Geary 
+
+
+#Map 
+
+# ploot map 
+tm_shape(gwr.moran.map6) + tm_fill(col = "Ii", palette = "RdBu", style = "jenks", title = "Local Moran's Statistic")+
+  tm_layout(frame = F, main.title ="Local Moran's I Test")
+
+
+
+
+#----- 1.3 Getis Ord --------
+
+
+# creates centroid and joins neighbours within 0 and 800 units
+nb6 <- dnearneigh(coordinates(gwr.map6),0,1000)
+# creates listw
+nb_lw6 <- nb2listw(nb6, style = 'B',zero.policy = TRUE)
+
+
+
+# compute Getis-Ord Gi statistic
+local_g6 <- localG(gwr.map6@data$mh_tot_log, nb_lw6)
+local_g6 <- cbind(gwr.map6, as.matrix(local_g6))
+names(local_g6)
+names(local_g6)[310] <- "gstat"
+
+# map the results
+
+tm_shape(local_g6) + tm_fill("gstat", palette = "RdBu", style = "jenks",title="z-scores") + tm_borders(alpha=.2)+
+  tm_layout(frame = F, main.title ="Getis Ord Test",title.size=1.3,main.title.size = 1.7,title="Cluster 6")+
+  tm_legend(show=T)
+
+
+
+#-----1.4 GWR  0 Coefficients Predictors ----
+names(gwr.map6)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.age0_15", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age0-15",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.age16_29", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age16_29",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.age30_44", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age30_44",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.age45_64", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:age45_64",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.age65_", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:65_",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.pop_per_h", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:pop_per_h",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.dm1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.dm2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+#### ---- CONTINUE HERE ------ THIRZA IS THE BEST YAY !!! 
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.dm3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.dm4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.dm5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:dm5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.eth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.eth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.eth3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.eth4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.eth5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:eth5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.birth1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.birth2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:birth2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.rel9", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:rel9",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ten1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ten2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ten3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ten4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ten4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.house_price", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:house_price",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.crim_tot", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim_tot",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.crim1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.crim2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.crim3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.crim4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.crim5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.crim6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:crim6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.em_n_w_child", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_w_child",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.em_n_l", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em_n_l",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.em1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.em2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.em3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:em3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.in1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.in2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.in3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.bad_health", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:bad_health",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.green_space", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:green_space",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.poll_PM10", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_PM10",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.poll_Nox", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_Nox",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.poll_NO2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_NO2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.poll_index", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:poll_index",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc6", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc6",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc7", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc7",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.acc8", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:acc8",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.in4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.in5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:in5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ed_ab", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed_ab",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ed1", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed1",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ed2", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ed2a", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed2a",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ed3", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed3",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ed4", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed4",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
+
+tm_shape(gwr.map6) + 
+  tm_fill("lsoa_test1.ed5", n = 5, style = "jenks")  + 
+  tm_layout(frame = F, main.title ="GWR coef:ed5",main.title.size = 1.7)+
+  tm_legend(show=F)
+
+
 
 
 
@@ -2898,10 +6523,10 @@ names(ann)
 set.seed(10)
 
 # selecting what variables 
-ann.nnet<- nnet(mh_tot_log~ ,age0_15, age16_29, age30_44, age45_64,age65_,pop_per_h,dm1,
-                dm2,dm3,dm4,dm5,eth1,eth2,eth3        
-                ,eth4,eth5,birth1,birth2,rel1,rel2,rel3,rel4,rel5,rel6,rel7,rel8,rel9,ten1,        
-                ten2,ten3,ten4,house_price,crim_tot, crim1,crim2,data=ann, size=2)
+ann.nnet<- nnet(mh_tot~ age0_15 + age16_29 +
+                  age30_44+  age45_64+eth1+eth2+eth3+eth4+eth5+birth1+
+                  birth2+rel1+rel2+rel3+rel4+rel5+rel6+rel7+rel8+rel9
+                +ten1+ten2+ten3+ten4+house_price+crim_tot+crim1+crim2, data=ann, size=2)
 
 
 
@@ -2925,8 +6550,11 @@ library("devtools")
 
 mygrid <- expand.grid(.decay=c(0.5, 0.1), .size=c(4,5,6))
 
-mh.nnet.parameters <- train(mh_tot/50 ~ ten2, data=ann, 
-                             method="nnet", metric = "Rsquared", maxit=10, tuneGrid=mygrid, trace=F)
+mh.nnet.parameters <- train(mh_tot/50 ~ age0_15 + age16_29 +
+                              age30_44+age45_64+eth1+eth2+eth3+eth4+eth5+birth1+
+                              birth2+rel1+rel2+rel3+rel4+rel5+rel6+rel7+rel8+rel9
+                            +ten1+ten2+ten3+ten4+house_price+crim_tot+crim1+crim2, data=ann, 
+                             method="nnet", metric = "Rsquared", maxit=5, tuneGrid=mygrid, trace=F)
 
 dev.off()
 
@@ -3332,9 +6960,5 @@ pred <- predict(mh.nnet.final, nn_mh_test)
 x <- pred*50
 y <- ann$mh_tot
 plot(x,y, main="Neural network predictions vs observed", xlab="Observed", ylab="Predicted")
-
-
-
-
 
 
